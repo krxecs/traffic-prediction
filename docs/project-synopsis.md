@@ -38,9 +38,15 @@ The project will follow these steps:
 - **Storage and data access:** Google Drive and HDF5 (`.h5`) files
 - **Dataset:** METR-LA traffic-speed dataset, containing 5-minute observations from 207 sensors
 - **Deep-learning framework:** PyTorch (`torch`, `torch.nn`, `torch.optim`, and `torch.utils.data`)
-- **Model architecture:** CNN-LSTM, combining one-dimensional convolutional layers with an LSTM network
+- **Model architecture:** Multivariate temporal CNN-LSTM, combining one-dimensional temporal convolutional layers with an LSTM network
 - **Data processing:** Pandas and NumPy
 - **Visualization:** Matplotlib
+
+### Implemented CNN-LSTM Scope and Limitation
+
+The implemented model is a multivariate temporal CNN-LSTM. It applies one-dimensional temporal convolution over historical traffic sequences to extract local temporal patterns, then uses an LSTM to model longer-term temporal dependencies. Measurements from multiple sensors are supplied jointly as multivariate features, allowing cross-sensor relationships to be learned implicitly from the data.
+
+The model does not use `adj_METR-LA.pkl`, an adjacency matrix, graph convolution, message passing, or an explicit representation of road-network topology. Because it does not encode road-network structure or physical sensor connectivity, it is not a topology-aware spatial model. A graph-based model such as STGCN or DCRNN would be needed for explicit topology-aware spatial modelling.
 
 ## 6. Expected Outcomes
 
@@ -58,13 +64,13 @@ The project will follow these steps:
 
 ## 8. Literature Review and Research Gap
 
-Recent survey literature supports a practical, data-driven approach to traffic prediction while showing why the problem must account for temporal, spatial, and external influences.
+Recent survey literature supports a practical, data-driven approach to traffic prediction and identifies temporal, spatial, and external influences as distinct concerns. The current model addresses the temporal component with multivariate sensor measurements; it does not implement explicit spatial graph modelling.
 
 1. **Almukhalfi, Noor, and Noor (2024)** survey machine-learning and deep-learning approaches for traffic-management systems. They identify congestion prediction, traffic-flow management, public-transport optimization, and emergency management as persistent challenges. Their review motivates this project's use of prediction as a decision-support tool for drivers and traffic authorities, rather than as a standalone model.
 
 2. **Shaygan et al. (2022)** review artificial-intelligence-based traffic prediction, covering traffic-data types, preprocessing, conventional machine-learning methods, and deep-learning approaches. The paper supports the proposed use of cleaned historical data and explanatory variables such as time, day, weather, and traffic volume. It also establishes Linear Regression, Decision Trees, and Random Forests as suitable baseline models before considering more complex neural approaches.
 
-3. **Yin et al. (2022)** provide a taxonomy of deep-learning traffic-prediction methods and highlight the challenge of dynamic spatio-temporal dependencies in road networks. Their dataset review and comparative evaluation reinforce the need to use a consistent train/test split and compare the proposed model with simple baselines. For a future extension, graph-based and recurrent neural models could capture relationships between connected road segments and longer-term traffic patterns.
+3. **Yin et al. (2022)** provide a taxonomy of deep-learning traffic-prediction methods and highlight the challenge of dynamic spatio-temporal dependencies in road networks. Their dataset review and comparative evaluation reinforce the need to use a consistent train/test split and compare the proposed model with simple baselines. As a future extension beyond the current CNN-LSTM, a graph-based model could explicitly capture relationships between connected road segments, while recurrent components could model longer-term temporal patterns.
 
 ### Research Gap and Project Contribution
 
