@@ -1,50 +1,26 @@
 # Traffic prediction experiment TODO
 
-## Goal 0 — Preserve baseline invariants
+## Preserved baseline protocol
 
-- [x] Preserve METR-LA chronological 70/10/20 splits.
-- [x] Preserve leakage-safe preprocessing, causal history filling, and training-only normalization.
-- [x] Preserve 12-step / 60-minute input history and the raw-speed congestion definition: `< 40 mph`.
-- [x] Keep the existing STGCN encoder and current optimizer/scheduler unless an interface change requires otherwise.
-- [x] Retain MAE, RMSE, and MAPE reporting.
+- [x] Keep METR-LA sensor order, causal preprocessing, training-only normalization, and chronological 70/10/20 splits.
+- [x] Keep 12 recent steps, joint next-12 targets, `[B, H, N]` predictions/logits, raw speed `< 40 mph` labels, masked Huber and training-only class-weighted BCE.
+- [x] Keep validation-only threshold fitting and isolated 15/30/60-minute test reporting.
 
-## Goal 1 — Classification-aware evaluation
+## Implemented ablation controls
 
-- [x] Report positive/negative support and prevalence separately for train, validation, and test.
-- [x] Retain MAE, RMSE, and MAPE.
-- [x] Report precision, recall, F1, AUPRC, AUROC, and accuracy.
-- [x] Keep test information out of training, class weighting, threshold selection, and model selection.
+- [x] A0 uses `optimizer_mode="legacy"`, `graph_mode="physical"`, no periodic lags, and `temporal_mode="single"`.
+- [x] A1 selects `optimizer_mode="adamw"`: AdamW (`3e-4`, `1e-4` decay), five-epoch warm-up, cosine decay to `1e-5`, AMP-safe norm clipping at `2.0`, and 15-epoch validation early stopping. The trainer records LR, both task losses, total loss, validation MAE, validation AUPRC, parameter count, best epoch, and duration. `checkpoint_metric` explicitly controls main checkpoint selection while MAE and AUPRC states are retained.
+- [x] A2 selects `graph_mode="adaptive"`. Trainable `[N, 16]` source/destination embeddings produce non-self top-16 sparse edges. The model symmetrizes them and mixes duplicate edges as `0.8 * A_physical + 0.2 * A_adaptive`. It recomputes the normalized Chebyshev operator in forward, so graph weights remain differentiable. `adaptive_embed_dim`, `adaptive_top_k`, `physical_graph_alpha`, and `adaptive_edge_dropout` control this path.
+- [x] A3a enables `use_daily_lag`; A3b also enables `use_weekly_lag`. `JointForecastDataset` returns `[B, T, N, 4]`: normalized daily speed, daily observed mask, normalized weekly speed, weekly observed mask. The offsets are exactly 288 and 2016 steps. Missing history uses zero value and zero mask.
+- [x] A4 selects `temporal_mode="multiscale"`. The two STConv blocks use causal GLU branches with `(kernel, dilation)` values `(3,1)`, `(3,2)`, and `(3,4)`, left-padded so every branch returns `T - 2`; a 1x1 fusion follows. The final output temporal layer remains the A0 layer.
+- [x] The Colab badge and clone command explicitly target `new-refactor` and reject an existing checkout on a different branch.
 
-## Goal 2 — Joint 12-step dataset/model
+## Verification
 
-- [x] Return next-12 targets, observation masks, and raw-mph targets from each dataset example.
-- [x] Use inspectable `[B, H, N]` target, mask, prediction, and logits tensors with `H = 12`.
-- [x] Replace separate horizon models with one joint model and evaluate horizon indices 2, 5, and 11.
+- [x] Static syntax and notebook JSON validation are part of the implementation check.
+- [x] Smoke checks cover both heads, masks, frozen threshold metrics, lag shapes and offsets, graph indices/top-k/finite weights, adaptive embedding gradients, and AdamW clipping/scheduler behavior.
+- [ ] Train A1, A2, A3a, A3b, A4, and component-removal ablations to report empirical metrics. Do not infer improvements from smoke tests.
 
-## Goal 3 — Dedicated congestion head
+## Future work, not implemented
 
-- [x] Reuse the shared STGCN encoder with only regression and congestion output heads.
-- [x] Return `speed_pred, congestion_logits`.
-
-## Goal 4 — Minimal multitask loss
-
-- [x] Use masked Huber regression loss on observed targets.
-- [x] Construct labels from raw future speed `< 40.0 mph`.
-- [x] Use masked weighted `BCEWithLogitsLoss`, with training-only `pos_weight`.
-- [x] Expose one `lambda_cls` configuration value.
-
-## Goal 5 — Validation-only threshold protocol
-
-- [x] Select F1 threshold from validation probabilities only.
-- [x] Freeze that threshold for test evaluation.
-
-## Goal 6 — Verification
-
-- [x] Statically verify notebook JSON and Python syntax, tensor-shape conventions, horizon mapping, and threshold flow.
-- [x] Run the runtime smoke test with Pixi on a real METR-LA batch: shapes, raw labels, masking, finite losses, gradients to both heads, and frozen-threshold evaluation.
-- [x] Verify 15/30/60-minute metric output with the frozen validation threshold.
-
-## Deferred / Not Now
-
-- [ ] Focal loss and regression/classification consistency loss.
-- [ ] Optimizer/scheduler changes, early-stopping redesign, adaptive/dynamic graphs, lag features, multi-scale convolutions, attention/Transformers, self-supervision, calibration, ensembling, PEMS-BAY, sweeps, and multi-seed studies.
+- [ ] Dynamic or input-conditioned adjacency, attention/Transformers, ST-SSL, STEP pretraining, focal loss, regression/classification consistency loss, calibration, ensembling, PEMS-BAY, hyperparameter sweeps, and multi-seed studies.
