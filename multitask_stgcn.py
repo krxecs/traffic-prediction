@@ -68,6 +68,24 @@ A1_CONFIG = ExperimentConfig(
     temporal_mode="single",
     max_epochs=150,
 )
+A2_CONFIG = ExperimentConfig(
+    optimizer_mode="adamw",
+    graph_mode="adaptive",
+    use_daily_lag=False,
+    use_weekly_lag=False,
+    temporal_mode="single",
+    adaptive_embed_dim=16,
+    adaptive_top_k=16,
+    physical_graph_alpha=0.8,
+    adaptive_edge_dropout=0.05,
+    learning_rate=3e-4,
+    weight_decay=1e-4,
+    warmup_epochs=5,
+    min_learning_rate=1e-5,
+    max_epochs=150,
+    early_stop_patience=15,
+    max_grad_norm=2.0,
+)
 
 
 class MultiTaskSTGCN(nn.Module):
@@ -298,13 +316,20 @@ def smoke_test(model, loader, device, pin_memory, pos_weight, lambda_cls, thresh
     assert torch.isfinite(total)
     total.backward()
     assert model.reg_head.weight.grad is not None and model.cls_head.weight.grad is not None
+    if model.experiment_config.graph_mode == "adaptive":
+        assert model.encoder.adaptive_graph is not None
     if model.encoder.adaptive_graph is not None:
         graph = model.encoder.adaptive_graph
-        assert graph.node_src.grad is not None and graph.node_src.grad.norm() > 0
-        assert graph.node_dst.grad is not None and graph.node_dst.grad.norm() > 0
+        assert graph.node_src.grad is not None and graph.node_dst.grad is not None
+        src_grad_norm, dst_grad_norm = graph.node_src.grad.norm(), graph.node_dst.grad.norm()
+        assert torch.isfinite(src_grad_norm) and src_grad_norm > 0
+        assert torch.isfinite(dst_grad_norm) and dst_grad_norm > 0
+        adaptive_index, adaptive_weight = graph.adaptive_edges()
+        assert (adaptive_index.min() >= 0 and adaptive_index.max() < graph.num_nodes
+                and torch.isfinite(adaptive_weight).all())
+        assert adaptive_index.shape[1] <= graph.num_nodes * 2 * graph.top_k
         edge_index, edge_weight = graph.mixed_edges()
         assert edge_index.min() >= 0 and edge_index.max() < graph.num_nodes and torch.isfinite(edge_weight).all()
-        assert graph.adaptive_edges()[0].shape[1] <= graph.num_nodes * 2 * graph.top_k
     toy_mask = torch.tensor([[1.0, 0.0]], device=device); toy_target = torch.tensor([[0.0, 0.0]], device=device)
     toy_prediction = torch.tensor([[0.0, 100.0]], device=device); toy_logits = torch.tensor([[0.0, 100.0]], device=device)
     assert torch.equal(congestion_labels(torch.tensor([[39.9, 40.0]], device=device), threshold_mph), torch.tensor([[1.0, 0.0]], device=device))
