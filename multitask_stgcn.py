@@ -341,7 +341,13 @@ def train_joint_stgcn(train_loader, val_loader, *, edge_index, edge_weight, num_
     else:
         optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate, weight_decay=config.weight_decay)
         scheduler = WarmupCosineScheduler(optimizer, config.learning_rate, config.min_learning_rate, config.warmup_epochs, config.max_epochs)
-    scaler = torch.amp.GradScaler("cuda", enabled=device.type == "cuda")
+    amp_enabled = device.type == "cuda"
+    amp_dtype = (
+        torch.bfloat16
+        if amp_enabled and torch.cuda.is_bf16_supported()
+        else torch.float16
+    )
+    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
     train_curve, val_curve, history = [], [], []
     best_state, best_epoch = None, None
     best_by_metric = float("-inf") if config.checkpoint_metric == "val_auprc" else float("inf")
@@ -352,7 +358,11 @@ def train_joint_stgcn(train_loader, val_loader, *, edge_index, edge_weight, num_
         for batch in train_loader:
             batch = {key: value.to(device, non_blocking=pin_memory) for key, value in batch.items()}
             optimizer.zero_grad(set_to_none=True)
-            context = torch.autocast(device_type="cuda", dtype=torch.bfloat16) if device.type == "cuda" else nullcontext()
+            context = (
+                torch.autocast(device_type="cuda", dtype=amp_dtype)
+                if amp_enabled
+                else nullcontext()
+            )
             with context:
                 speed_pred, logits = _model_forward(model, batch)
                 reg = masked_huber(speed_pred, batch["target"], batch["mask"])
