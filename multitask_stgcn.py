@@ -50,6 +50,26 @@ class ExperimentConfig:
         }
 
 
+# Keep the frozen multitask baseline independent from the longer modern
+# optimizer runs.  A1 retains the 150-epoch budget and AdamW schedule.
+A0_CONFIG = ExperimentConfig(
+    optimizer_mode="legacy",
+    graph_mode="physical",
+    use_daily_lag=False,
+    use_weekly_lag=False,
+    temporal_mode="single",
+    max_epochs=50,
+)
+A1_CONFIG = ExperimentConfig(
+    optimizer_mode="adamw",
+    graph_mode="physical",
+    use_daily_lag=False,
+    use_weekly_lag=False,
+    temporal_mode="single",
+    max_epochs=150,
+)
+
+
 class MultiTaskSTGCN(nn.Module):
     """Shared encoder and existing [B, H, N] regression/classification heads."""
 
