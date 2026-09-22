@@ -86,6 +86,24 @@ A2_CONFIG = ExperimentConfig(
     early_stop_patience=15,
     max_grad_norm=2.0,
 )
+A3A_CONFIG = ExperimentConfig(
+    optimizer_mode="adamw",
+    graph_mode="adaptive",
+    use_daily_lag=True,
+    use_weekly_lag=False,
+    temporal_mode="single",
+    adaptive_embed_dim=16,
+    adaptive_top_k=16,
+    physical_graph_alpha=0.8,
+    adaptive_edge_dropout=0.05,
+    learning_rate=3e-4,
+    weight_decay=1e-4,
+    warmup_epochs=5,
+    min_learning_rate=1e-5,
+    max_epochs=150,
+    early_stop_patience=15,
+    max_grad_norm=2.0,
+)
 
 
 class MultiTaskSTGCN(nn.Module):
@@ -291,6 +309,11 @@ def smoke_test(model, loader, device, pin_memory, pos_weight, lambda_cls, thresh
     """Checks A0 invariants plus lags, graph gradients, temporal modes, and AdamW."""
     batch = next(iter(loader))
     dataset = loader.dataset
+    assert model.encoder.use_daily_lag is model.experiment_config.use_daily_lag
+    assert model.encoder.use_weekly_lag is model.experiment_config.use_weekly_lag
+    if model.experiment_config.use_daily_lag:
+        assert model.encoder.use_daily_lag is True
+        assert model.encoder.use_weekly_lag is False
     assert batch["periodic_feat"].shape[1:] == (dataset.history, dataset.normalized.shape[1], 4)
     origins = batch["origin"].numpy()
     recent = origins[:, None] - dataset.history + 1 + np.arange(dataset.history)[None, :]
