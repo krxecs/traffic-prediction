@@ -122,6 +122,24 @@ A3B_CONFIG = ExperimentConfig(
     early_stop_patience=15,
     max_grad_norm=2.0,
 )
+A4_CONFIG = ExperimentConfig(
+    optimizer_mode="adamw",
+    graph_mode="adaptive",
+    use_daily_lag=True,
+    use_weekly_lag=True,
+    temporal_mode="multiscale",
+    adaptive_embed_dim=16,
+    adaptive_top_k=16,
+    physical_graph_alpha=0.8,
+    adaptive_edge_dropout=0.05,
+    learning_rate=3e-4,
+    weight_decay=1e-4,
+    warmup_epochs=5,
+    min_learning_rate=1e-5,
+    max_epochs=150,
+    early_stop_patience=15,
+    max_grad_norm=2.0,
+)
 
 
 class MultiTaskSTGCN(nn.Module):
