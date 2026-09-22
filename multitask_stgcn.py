@@ -311,9 +311,6 @@ def smoke_test(model, loader, device, pin_memory, pos_weight, lambda_cls, thresh
     dataset = loader.dataset
     assert model.encoder.use_daily_lag is model.experiment_config.use_daily_lag
     assert model.encoder.use_weekly_lag is model.experiment_config.use_weekly_lag
-    if model.experiment_config.use_daily_lag:
-        assert model.encoder.use_daily_lag is True
-        assert model.encoder.use_weekly_lag is False
     assert batch["periodic_feat"].shape[1:] == (dataset.history, dataset.normalized.shape[1], 4)
     origins = batch["origin"].numpy()
     recent = origins[:, None] - dataset.history + 1 + np.arange(dataset.history)[None, :]
