@@ -1,5 +1,7 @@
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+__pycache__/
+*.py[cod]
 results/*
 !results/test_metrics_by_horizon.csv
