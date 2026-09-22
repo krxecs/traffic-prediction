@@ -4,7 +4,9 @@ channels = ["conda-forge"]
 name = "traffic-prediction"
 version = "0.1.0"
 platforms = [
-  { platform = "linux-64", cuda = "12.0" },
+  # The CUDA platform is listed first, so it wins platform selection on a machine with a CUDA driver.
+  { name = "linux-64-cuda", platform = "linux-64", cuda = "12.0" },
+  { name = "linux-64-cpu", platform = "linux-64" },
 ]
 
 [tasks]
