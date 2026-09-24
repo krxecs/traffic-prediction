@@ -16,7 +16,7 @@ from torch import nn
 from torch.utils import data
 from tqdm.auto import trange
 
-from stgcn_model import STGCNEncoder
+from .stgcn_model import STGCNEncoder
 
 
 @dataclass
