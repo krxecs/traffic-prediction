@@ -12,4 +12,4 @@ pixi run main.py fit --config configs/ablations/A5.yaml --trainer.max_epochs 1 \
   --report_test=false
 ```
 
-The tests cover YAML schema and the nine historical configs, with one metadata correction: A0 now records its actual RMSprop learning rate of 0.001 rather than the old unused 0.0003 default. They also exercise CLI parsing, a one-batch fit, learning-rate scheduling, Optuna pruning and a short winner retrain. They do not repeat the historical cross-framework comparison or establish full-budget GPU parity.
+The tests cover YAML schema and the nine historical configs and the tuned A5a preset, with one metadata correction: A0 now records its actual RMSprop learning rate of 0.001 rather than the old unused 0.0003 default. They also exercise CLI parsing, a one-batch fit, learning-rate scheduling, Optuna pruning and a short winner retrain. They do not repeat the historical cross-framework comparison or establish full-budget GPU parity.

@@ -30,7 +30,7 @@ def configured_settings(ablation, objective, epochs, params):
 
 
 def finalize_winner(study, *, ablation, objective, epochs, seed, batch_size, output_dir,
-                    prepared):
+                    prepared, include_60=False):
     """Retrain the best completed trial on full loaders, then test its best checkpoint."""
     completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if not completed:
@@ -46,7 +46,11 @@ def finalize_winner(study, *, ablation, objective, epochs, seed, batch_size, out
                  'selection': 'best completed trial; fresh full-data fit with same seed and epoch budget'}
     (output / 'selection.json').write_text(json.dumps(selection, indent=2))
     module, dm, _, checkpoint = fit(prepared, config, output, seed=seed, batch_size=batch_size)
-    report(module, dm, checkpoint, output, f'{ablation}-tuned')
+    if include_60:
+        report(module, dm, checkpoint, output, f'{ablation}-trial-10-winner',
+               horizons=((2, 15), (5, 30), (8, 45), (11, 60)))
+    else:
+        report(module, dm, checkpoint, output, f'{ablation}-tuned')
     return output
 
 
@@ -61,6 +65,7 @@ def main():
     p.add_argument('--ablation', choices=tunable, default=tunable[0])
     p.add_argument('--objective', choices=['val_total_loss', 'val_auprc'], default='val_total_loss')
     p.add_argument('--trials', type=int, default=10); p.add_argument('--epochs', type=int)
+    p.add_argument('--target-trials', action='store_true', help='Treat trials as total terminal trials and fail interrupted trials on resume')
     p.add_argument('--finalize', action='store_true', help='Retrain the best completed trial on full data and evaluate test once')
     p.add_argument('--finalize-only', action='store_true', help='Skip new trials and finalize an existing study')
     p.add_argument('--seed', type=int, default=42); p.add_argument('--batch-size', type=int, default=50)
@@ -88,6 +93,15 @@ def main():
     study.set_user_attr('contract', contract)
     # A resumed invocation must not replay the initial random sampler stream.
     study.sampler = optuna.samplers.TPESampler(seed=a.seed + len(study.trials))
+    if a.target_trials:
+        for trial in study.trials:
+            if trial.state == optuna.trial.TrialState.RUNNING:
+                study._storage.set_trial_state_values(trial._trial_id, optuna.trial.TrialState.FAIL)
+    if a.target_trials and a.finalize_only:
+        if sum(t.state.is_finished() for t in study.trials) < a.trials:
+            raise ValueError('Study has fewer terminal trials than the target')
+        if list((Path(a.output_dir) / a.study).glob('winner-*/test_metrics.csv')):
+            raise ValueError('Winner test report already exists; do not repeat finalization')
     prepared = prepare_metr_la(a.data_dir)
     def objective(trial):
         params = {'learning_rate': trial.suggest_float('learning_rate', 1e-4, 1e-3, log=True),
@@ -104,7 +118,14 @@ def main():
             a.limit_train_batches or 1.0, a.limit_val_batches or 1.0, extra_callbacks=[callback])
         return max(r[a.objective] for r in module.history) if direction == 'maximize' else min(r[a.objective] for r in module.history)
     if not a.finalize_only:
-        study.optimize(objective, n_trials=a.trials)
+        terminal = sum(t.state.is_finished() for t in study.trials)
+        remaining = max(0, a.trials - terminal) if a.target_trials else a.trials
+        study.optimize(objective, n_trials=remaining)
+    summary_dir = Path(a.output_dir) / a.study
+    summary_dir.mkdir(parents=True, exist_ok=True)
+    summary = {'study': study.study_name, 'contract': contract,
+               'trials': [{'number': t.number, 'state': t.state.name, 'value': t.value, 'params': t.params} for t in study.trials]}
+    (summary_dir / 'study_summary.json').write_text(json.dumps(summary, indent=2))
     completed = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE]
     if not completed:
         if a.finalize or a.finalize_only:

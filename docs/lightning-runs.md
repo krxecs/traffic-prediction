@@ -17,7 +17,7 @@ with its standard `fit` subcommand for training. It does not expose `test` or
 `predict`: this experiment selects a validation threshold and reports the
 held-out test set after `fit`. Trainer and data options remain configurable.
 `jsonargparse`, `docstring_parser`, and `typeshed-client` are in the Pixi
-environment. The nine YAML presets use
+environment. The nine historical YAML presets and the tuned A5a preset use
 LightningCLI's [`--config` support](https://lightning.ai/docs/pytorch/stable/reference/cli/lightning_cli_advanced.md):
 
 ```bash
@@ -128,3 +128,39 @@ The data Volume is read-only. On success the job commits the artifact Volume
 before returning its path. A long-lived consumer must close files and call
 `reload()` before reading new writes. A timeout can interrupt the function
 before commit or leave incomplete artifacts; check the returned path and CSV.
+
+### A5 A100 tuning
+
+The dedicated job requests one `A100-40GB` and verifies the assigned GPU memory before training, a 24-hour timeout and at most one
+container. It uses the read-only `traffic-metr-la` volume and writes to
+`traffic-artifacts:/a5-optuna-seed42`. The study `a5-loss-seed42` minimizes
+`val_total_loss` with seed 42, 150 epochs, batch size 50, full loaders and A5's
+patience-15 early stopping. Only learning rate (log 1e-4 to 1e-3), weight decay
+(log 1e-6 to 1e-2), and gradient clipping (1 to 5) vary. The target is 10
+terminal trials; interrupted running trials are marked failed on resume. Run
+only one invocation at a time. The base revision is
+`9261f615addc8a8c0fce8b8fcba3c4de5555b95a`, plus the working-tree A5 changes.
+Local dataset SHA256: `METR-LA.h5` =
+`64784b76d6fb8ec9bff4b6decafb354da2bb37840468fdccee5044e511277c05`,
+`adj_METR-LA.pkl` =
+`a35687c6e15aa228dc45027b0ed2a0ea0f4ec78f573deb992c595092d12f61b3`.
+Volume file names are checked separately; these hashes describe local files.
+
+```bash
+pixi run modal volume ls traffic-metr-la /
+pixi run python -m modal run --detach modal_app.py::a5
+# Repeat the same command to resume; then run exactly once:
+pixi run python -m modal run --detach modal_app.py::a5 --finalize
+pixi run modal volume ls traffic-artifacts /a5-optuna-seed42/a5-loss-seed42
+pixi run modal volume get traffic-artifacts /a5-optuna-seed42/a5-loss-seed42/study_summary.json ./study_summary.json
+```
+
+The SQLite database and per-trial directories persist under the artifact root;
+the finalizer writes a separate winner directory with selection and test files.
+Do not finalize twice: each finalization performs a fresh retrain and test.
+
+`configs/ablations/A5a.yaml` saves the completed trial 10 tuned configuration.
+It retains A5 architecture and training settings except for its tuned AdamW learning
+rate, weight decay, and gradient clipping. A5 remains the historical preset;
+`a5-loss-seed42` is the Optuna study name, not an ablation name. Load the tuned
+preset with `pixi run main.py fit --config configs/ablations/A5a.yaml`.

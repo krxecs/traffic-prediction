@@ -179,7 +179,7 @@ def fit(prepared, config, output, seed=42, batch_size=50, limit_train_batches=1.
     return module, dm, trainer, checkpoints[0].best_model_path
 
 
-def report(module, dm, checkpoint, output, name):
+def report(module, dm, checkpoint, output, name, horizons=((2, 15), (5, 30), (8, 45))):
     state = torch.load(checkpoint, map_location=module.device, weights_only=False)
     module.load_state_dict(state['state_dict'])
     torch.save(module.model.state_dict(), Path(output) / 'model.pt')
@@ -189,7 +189,7 @@ def report(module, dm, checkpoint, output, name):
     threshold, _ = select_validation_threshold(val[2][valid] < 40., 1 / (1 + np.exp(-val[3][valid])))
     _, test = evaluate_model(module.model, dm.test_dataloader(), *args)
     rows = []
-    for index, horizon in [(2, 15), (5, 30), (8, 45)]:
+    for index, horizon in horizons:
         arrays = [x[:, index, :] for x in test]
         if not arrays[4].any(): raise ValueError(f'No observed test targets at {horizon} minutes')
         rows.append(dict(Model='Joint multitask STGCN(Cheb)', Experiment=name, ExperimentConfig=str(asdict(module.config)),
