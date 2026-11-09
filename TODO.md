@@ -8,8 +8,8 @@
 
 ## Implemented ablation controls
 
-- [x] A0 uses `optimizer_mode="legacy"`, `graph_mode="physical"`, no periodic lags, and `temporal_mode="single"`.
-- [x] A1 selects `optimizer_mode="adamw"`: AdamW (`3e-4`, `1e-4` decay), five-epoch warm-up, cosine decay to `1e-5`, AMP-safe norm clipping at `2.0`, and 15-epoch validation early stopping. The trainer records LR, both task losses, total loss, validation MAE, validation AUPRC, parameter count, best epoch, and duration. `checkpoint_metric` explicitly controls main checkpoint selection while MAE and AUPRC states are retained.
+- [x] A0's YAML selects RMSprop, `graph_mode="physical"`, no periodic lags, and `temporal_mode="single"`.
+- [x] A1's YAML selects AdamW (`3e-4`, `1e-4` decay), five-epoch warm-up, cosine decay to `1e-5`, AMP-safe norm clipping at `2.0`, and 15-epoch validation early stopping. The trainer records LR, both task losses, total loss, validation MAE, validation AUPRC, parameter count, best epoch, and duration. The `best` checkpoint callback controls main selection while MAE and AUPRC states are retained.
 - [x] A2 selects `graph_mode="adaptive"`. Trainable `[N, 16]` source/destination embeddings produce non-self top-16 sparse edges. The model symmetrizes them and mixes duplicate edges as `0.8 * A_physical + 0.2 * A_adaptive`. It recomputes the normalized Chebyshev operator in forward, so graph weights remain differentiable. `adaptive_embed_dim`, `adaptive_top_k`, `physical_graph_alpha`, and `adaptive_edge_dropout` control this path.
 - [x] A3a enables `use_daily_lag`; A3b also enables `use_weekly_lag`. `JointForecastDataset` returns `[B, T, N, 4]`: normalized daily speed, daily observed mask, normalized weekly speed, weekly observed mask. The offsets are exactly 288 and 2016 steps. Missing history uses zero value and zero mask.
 - [x] A4 selects `temporal_mode="multiscale"`. The two STConv blocks use causal GLU branches with `(kernel, dilation)` values `(3,1)`, `(3,2)`, and `(3,4)`, left-padded so every branch returns `T - 2`; a 1x1 fusion follows. The final output temporal layer remains the A0 layer.

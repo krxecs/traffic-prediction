@@ -1,0 +1,51 @@
+model:
+  ablation: A0
+experiment:
+  graph_mode: physical
+  use_daily_lag: false
+  use_weekly_lag: false
+  temporal_mode: single
+  adaptive_embed_dim: 16
+  adaptive_top_k: 16
+  physical_graph_alpha: 0.8
+  adaptive_edge_dropout: 0.05
+trainer:
+  max_epochs: 50
+  gradient_clip_val: null
+  callbacks:
+  - class_path: src.lightning_train.NamedCheckpoint
+    init_args:
+      filename: best
+      monitor: val_total_loss
+      mode: min
+      save_top_k: 1
+      save_last: true
+      auto_insert_metric_name: false
+      enable_version_counter: false
+  - class_path: src.lightning_train.NamedCheckpoint
+    init_args:
+      filename: best-mae
+      monitor: val_mae
+      mode: min
+      save_top_k: 1
+      save_last: false
+      auto_insert_metric_name: false
+      enable_version_counter: false
+  - class_path: src.lightning_train.NamedCheckpoint
+    init_args:
+      filename: best-auprc
+      monitor: val_auprc
+      mode: max
+      save_top_k: 1
+      save_last: false
+      auto_insert_metric_name: false
+      enable_version_counter: false
+optimizer:
+  class_path: torch.optim.RMSprop
+  init_args:
+    lr: 0.001
+lr_scheduler:
+  class_path: torch.optim.lr_scheduler.StepLR
+  init_args:
+    step_size: 5
+    gamma: 0.7
