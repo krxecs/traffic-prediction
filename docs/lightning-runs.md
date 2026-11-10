@@ -13,9 +13,10 @@ pixi run python -m src.experiment_data --data-dir datasets/metr-la
 ```
 
 The training entrypoint uses [LightningCLI](https://lightning.ai/docs/pytorch/stable/reference/cli/lightning_cli.html)
-with its standard `fit` subcommand for training. It does not expose `test` or
-`predict`: this experiment selects a validation threshold and reports the
-held-out test set after `fit`. Trainer and data options remain configurable.
+with its standard `fit` and `predict` subcommands. `fit` selects a validation
+threshold and reports on held-out test data; `predict` loads a checkpoint and
+exports forecasts without computing test metrics. Trainer and data options
+remain configurable.
 `jsonargparse`, `docstring_parser`, and `typeshed-client` are in the Pixi
 environment. The nine historical YAML presets and the tuned A5a preset use
 LightningCLI's [`--config` support](https://lightning.ai/docs/pytorch/stable/reference/cli/lightning_cli_advanced.md):
@@ -51,6 +52,39 @@ the validation threshold and test metrics.
 Resume with the same ablation, seed and epoch budget using `pixi run main.py
 fit --config runs/<run>/config.yaml --ckpt_path runs/<run>/last.ckpt`. Only load checkpoints from trusted sources. Batch-limited
 runs require `--report_test=false` and are for mechanics checks only.
+
+To export predictions for the chronological test windows in a trained run:
+
+```bash
+pixi run main.py predict --config runs/<run>/config.yaml \
+  --ckpt_path runs/<run>/best.ckpt \
+  --prediction_output runs/<run>/predictions-test.npz
+```
+
+The tuned A5a artifact has `model.pt` rather than a replayable `config.yaml`.
+Use its matching preset and weights directly:
+
+```bash
+pixi run main.py predict --config configs/ablations/A5a.yaml \
+  --weights_path runs/A5a/model.pt \
+  --prediction_output runs/A5a/predictions-test.npz
+```
+
+`predict` defaults to the test split. Use `--data.predict_split=val` or
+`--data.predict_split=train` for another existing METR-LA split. It writes
+`speed_mph` and `congestion_probability` arrays shaped
+`[origins, 12 horizons, 207 sensors]`. The `.npz` also contains sorted origin
+indices, origin and forecast timestamps, sensor IDs, the split and ablation.
+Load it with `numpy.load(path, allow_pickle=False)`. The output contains
+probabilities, not binary congestion decisions. Apply the matching run's
+validation-selected threshold from `threshold.json` if you need decisions;
+`predict` does not fit a new threshold. It requires the full METR-LA dataset
+and either a trusted Lightning `.ckpt` with its run config or exported
+`model.pt` weights with their matching ablation YAML. Pass exactly one of
+`--ckpt_path` and `--weights_path`. The CLI loads `model.pt` in PyTorch's
+restricted weights-only mode. An existing output path is rejected to avoid
+overwriting predictions. Limit
+prediction batches with `--trainer.limit_predict_batches=1` for a smoke test.
 
 Run a validation-only study with:
 

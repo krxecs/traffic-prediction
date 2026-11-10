@@ -48,6 +48,7 @@ class TrafficDataModule(L.LightningDataModule):
     def train_dataloader(self): return self.loaders['train'][0]
     def val_dataloader(self): return self.loaders['val'][0]
     def test_dataloader(self): return self.loaders['test'][0]
+    def predict_dataloader(self): return self.test_dataloader()
 
 
 class WarmupCosine(torch.optim.lr_scheduler.LRScheduler):
@@ -83,6 +84,12 @@ class TrafficModule(L.LightningModule):
 
     def forward(self, batch):
         return self.model(batch['recent'], batch['time_feat'], batch['periodic_feat'])
+
+    def predict_step(self, batch, batch_idx):
+        speed, logits = self(batch)
+        return {'origin': batch['origin'].detach().cpu(),
+                'speed_mph': (speed.float() * self.std + self.mean).detach().cpu(),
+                'congestion_probability': torch.sigmoid(logits.float()).detach().cpu()}
 
     def losses(self, batch):
         pred, logits = self(batch)

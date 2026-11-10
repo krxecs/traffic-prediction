@@ -35,7 +35,7 @@ def read_metr_la_hdf(path):
                 timestamps = handle.get_node('/df/axis1').read()
             return pd.DataFrame(values, index=pd.to_datetime(timestamps),
                                 columns=[sensor_key(column) for column in columns])
-        except Exception as fallback_exc:
+        except Exception as fallback_exc:  # noqa: BLE001 - HDF backends raise different exception types.
             raise RuntimeError(f"Unable to read METR-LA HDF5 at {path}: {fallback_exc}") from exc
 
 
@@ -108,7 +108,8 @@ def prepare_metr_la(data_dir):
     if not np.isfinite(mean) or not np.isfinite(std) or std <= 0:
         raise ValueError('Invalid training normalization')
     edge_index, edge_weight = pyg_graph_from_adjacency(adjacency)
-    return {"sensor_ids": ordered_ids, "normalized": (filled-mean)/std, "raw_mph": raw,
+    return {"sensor_ids": ordered_ids, "timestamps": frame.index.to_numpy(dtype='datetime64[ns]'),
+                "normalized": (filled-mean)/std, "raw_mph": raw,
                 "observed": observed, "time_features": time_features, "train_end": train_end,
                 "val_end": val_end, "mean": mean, "std": std, "edge_index": edge_index,
                 "edge_weight": edge_weight}

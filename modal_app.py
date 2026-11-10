@@ -61,6 +61,64 @@ def main(ablation: str = 'A0', seed: int = 42, epochs: int = 1, trials: int = 0)
 
 @app.function(image=image, gpu='A100-40GB', timeout=86400, max_containers=1,
               volumes={'/data': data_volume.with_mount_options(read_only=True), '/artifacts': artifacts})
+def run_full_presets(a0_run_dir: str):
+    """Reuse completed A0 and train A7 sequentially on one verified GPU."""
+    import json
+    import subprocess
+    from pathlib import Path
+    from uuid import uuid4
+    import torch
+
+    gpu = torch.cuda.get_device_properties(0)
+    if 'A100' not in gpu.name or not 35 * 1024**3 <= gpu.total_memory <= 45 * 1024**3:
+        raise RuntimeError(f'Expected an A100 40 GB; received {gpu.name} ({gpu.total_memory} bytes)')
+    results = []
+    prior_a0 = Path(a0_run_dir)
+    required = ('best.ckpt', 'model.pt', 'config.yaml', 'metadata.json', 'threshold.json',
+                'history.csv', 'test_metrics.csv')
+    missing = [name for name in required if not (prior_a0 / name).is_file()]
+    if missing:
+        raise RuntimeError(f'A0 completed run is incomplete: {missing}')
+    (prior_a0 / 'provenance.json').write_text(json.dumps({
+        'ablation': 'A0', 'seed': 42, 'batch_size': 50, 'gpu': gpu.name,
+        'gpu_memory_bytes': gpu.total_memory, 'preset': '/root/configs/ablations/A0.yaml',
+        'test_evaluations': 1, 'loader_limits': None}, indent=2))
+    artifacts.commit()
+    results.append({'ablation': 'A0', 'run_dir': str(prior_a0), 'gpu': gpu.name,
+                    'gpu_memory_bytes': gpu.total_memory})
+    for ablation in ('A7',):
+        root = Path('/artifacts/full-modal') / f'{ablation}-{uuid4().hex}'
+        cmd = ['python', '-m', 'main', 'fit', '--config', f'/root/configs/ablations/{ablation}.yaml',
+               '--seed_everything', '42', '--data.data_dir', '/data', '--data.batch_size', '50',
+               '--output_dir', str(root)]
+        subprocess.run(cmd, check=True)
+        required = ('best.ckpt', 'model.pt', 'config.yaml', 'metadata.json', 'threshold.json',
+                    'history.csv', 'test_metrics.csv')
+        output_dirs = [p.parent for p in root.rglob('test_metrics.csv')]
+        if len(output_dirs) != 1:
+            raise RuntimeError(f'Expected one completed run under {root}, found {len(output_dirs)}')
+        run_dir = output_dirs[0]
+        missing = [name for name in required if not (run_dir / name).is_file()]
+        if missing:
+            raise RuntimeError(f'{ablation} missing expected artifacts: {missing}')
+        provenance = {'ablation': ablation, 'seed': 42, 'batch_size': 50,
+                      'gpu': gpu.name, 'gpu_memory_bytes': gpu.total_memory,
+                      'preset': f'/root/configs/ablations/{ablation}.yaml',
+                      'test_evaluations': 1, 'loader_limits': None}
+        (run_dir / 'provenance.json').write_text(json.dumps(provenance, indent=2))
+        artifacts.commit()
+        results.append({'ablation': ablation, 'run_dir': str(root), 'gpu': gpu.name,
+                        'gpu_memory_bytes': gpu.total_memory})
+    return results
+
+
+@app.local_entrypoint(name='full-presets')
+def full_presets(a0_run_dir: str):
+    print(run_full_presets.remote(a0_run_dir))
+
+
+@app.function(image=image, gpu='A100-40GB', timeout=86400, max_containers=1,
+              volumes={'/data': data_volume.with_mount_options(read_only=True), '/artifacts': artifacts})
 def run_a5(finalize: bool = False):
     """Run or resume the fixed A5 study, or retrain its winner separately."""
     import subprocess

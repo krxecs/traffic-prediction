@@ -8,6 +8,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
@@ -51,6 +52,40 @@ class LightningCLITests(unittest.TestCase):
                                 '--ckpt_path', str(cli.output / 'last.ckpt')])
             self.assertEqual(resumed.output, cli.output)
             self.assertEqual(resumed.model.history, cli.model.history)
+            prediction_path = Path(directory) / 'forecasts.npz'
+            with patch('sys.argv', ['main.py']):
+                predicted = main(['predict', '--config', str(cli.output / 'config.yaml'),
+                                  '--ckpt_path', str(cli.output / 'best.ckpt'),
+                                  '--trainer.limit_predict_batches=1',
+                                  '--prediction_output', str(prediction_path)])
+            with np.load(prediction_path, allow_pickle=False) as forecast:
+                self.assertEqual(forecast['speed_mph'].shape, (1, 12, 207))
+                self.assertEqual(forecast['congestion_probability'].shape, (1, 12, 207))
+                self.assertEqual(forecast['sensor_ids'].shape, (207,))
+                self.assertEqual(forecast['split'].item(), 'test')
+                self.assertEqual(forecast['origin'][0], predicted.datamodule.loaders['test'][1].origins[0])
+                timestamps = predicted.datamodule.prepared['timestamps']
+                self.assertEqual(forecast['forecast_timestamp'][0, 0], timestamps[forecast['origin'][0] + 1])
+                batch = next(iter(predicted.datamodule.predict_dataloader()))
+                predicted.model.eval()
+                with torch.inference_mode():
+                    speed, logits = predicted.model(batch)
+                np.testing.assert_allclose(forecast['speed_mph'],
+                    (speed * predicted.model.std + predicted.model.mean).numpy(), rtol=1e-5)
+                np.testing.assert_allclose(forecast['congestion_probability'],
+                    torch.sigmoid(logits).numpy(), rtol=1e-5)
+            self.assertFalse((cli.output / 'test_metrics.csv').exists())
+            weights_path = Path(directory) / 'model.pt'
+            torch.save(predicted.model.model.state_dict(), weights_path)
+            validation_output = Path(directory) / 'val-forecasts.npz'
+            with patch('sys.argv', ['main.py']):
+                main(['predict', '--config', str(ABLATIONS / 'A1.yaml'),
+                      '--weights_path', str(weights_path), '--data.predict_split=val',
+                      '--data.batch_size=1', '--trainer.limit_predict_batches=1',
+                      '--prediction_output', str(validation_output)])
+            with np.load(validation_output, allow_pickle=False) as forecast:
+                self.assertEqual(forecast['split'].item(), 'val')
+                self.assertEqual(forecast['speed_mph'].shape, (1, 12, 207))
 
     def test_yaml_epoch_budget_is_the_default_without_a_model_override(self):
         from main import TrafficCLI
@@ -94,9 +129,14 @@ class LightningCLITests(unittest.TestCase):
             self.assertEqual(len((cli.output / 'test_metrics.csv').read_text().splitlines()), 4)
             self.assertTrue((cli.output / 'model.pt').is_file())
 
-    def test_only_fit_subcommand_is_available(self):
+    def test_only_fit_and_predict_subcommands_are_available(self):
         from main import TrafficCLI
-        self.assertEqual(set(TrafficCLI.subcommands()), {'fit'})
+        self.assertEqual(set(TrafficCLI.subcommands()), {'fit', 'predict'})
+
+    def test_predict_requires_existing_checkpoint_before_loading_data(self):
+        with patch('main.prepare_metr_la') as prepare, self.assertRaisesRegex(ValueError, 'requires exactly one'):
+            main(['predict', '--config', str(ABLATIONS / 'A1.yaml')])
+        prepare.assert_not_called()
 
     def test_yaml_presets_parse_without_loading_data(self):
         with patch('sys.argv', ['main.py']), patch('main.prepare_metr_la') as prepare:

@@ -5,12 +5,15 @@ import json
 import sys
 from dataclasses import asdict
 from pathlib import Path
+from typing import Literal
 from uuid import uuid4
 
 import lightning as L
+import numpy as np
 import pandas as pd
 import torch
 from lightning.pytorch.cli import LightningCLI
+from torch.utils.data import DataLoader
 
 from src.experiment_config import GraphConfig, parse_experiment
 from src.experiment_data import make_loaders, prepare_metr_la
@@ -25,15 +28,21 @@ from src.multitask_stgcn import class_support
 
 class TrafficCLIData(TrafficDataModule):
     def __init__(self, data_dir: str = 'datasets/metr-la', batch_size: int = 50,
-                 num_workers: int = 0):
+                 num_workers: int = 0, predict_split: Literal['train', 'val', 'test'] = 'test'):
         prepared = prepare_metr_la(data_dir)
         super().__init__(prepared, batch_size, num_workers)
-        self.data_dir = data_dir
+        self.data_dir, self.predict_split = data_dir, predict_split
         self.loaders = make_loaders(prepared, batch_size, num_workers, torch.cuda.is_available())
         support = class_support(self.loaders['train'][1], 40.)
         if not support['positive']:
             raise ValueError('No positive training targets')
         self.pos_weight = support['negative'] / support['positive']
+
+    def predict_dataloader(self):
+        # Prediction must keep chronological order, including for the training split.
+        return DataLoader(self.loaders[self.predict_split][1], batch_size=self.batch_size,
+                          shuffle=False, num_workers=self.num_workers,
+                          pin_memory=torch.cuda.is_available())
 
 
 def resolve_experiment(value):
@@ -54,19 +63,45 @@ class TrafficCLIModel(TrafficModule):
 class TrafficCLI(LightningCLI):
     @staticmethod
     def subcommands():
-        # Reporting and threshold selection are defined only for a completed fit.
-        return {'fit': LightningCLI.subcommands()['fit']}
+        methods = LightningCLI.subcommands()
+        return {key: methods[key] for key in ('fit', 'predict')}
 
     def add_arguments_to_parser(self, parser):
         parser.add_argument('--output_dir', type=str, default='runs')
         parser.add_argument('--report_test', type=bool, default=True)
+        parser.add_argument('--prediction_output', type=str, default=None)
+        parser.add_argument('--weights_path', type=str, default=None)
         parser.add_class_arguments(GraphConfig, 'experiment')
         parser.link_arguments('experiment', 'model.experiment', apply_on='instantiate')
         parser.link_arguments('data.prepared', 'model.prepared', apply_on='instantiate')
         parser.link_arguments('data.pos_weight', 'model.pos_weight', apply_on='instantiate')
 
     def before_instantiate_classes(self):
-        config = self.config.fit
+        config = self.config[self.subcommand]
+        if self.subcommand == 'predict':
+            if bool(config.ckpt_path) == bool(config.weights_path):
+                raise ValueError('predict requires exactly one of --ckpt_path or --weights_path')
+            source = Path(config.ckpt_path or config.weights_path)
+            if not source.is_file():
+                raise ValueError('The prediction checkpoint or weights file does not exist')
+            if config.optimizer is None or config.lr_scheduler is None or config.trainer.max_epochs is None:
+                raise ValueError('predict requires the training YAML config')
+            if config.return_predictions is False:
+                raise ValueError('predict needs return_predictions=true to write its output')
+            if config.trainer.devices != 1:
+                raise ValueError('Prediction requires one device to preserve chronological order')
+            if config.lr_scheduler is not None and config.lr_scheduler.class_path == 'src.lightning_train.WarmupCosine':
+                config.lr_scheduler.init_args.max_epochs = config.trainer.max_epochs
+            self.predict_output = (Path(config.prediction_output) if config.prediction_output else
+                                   source.resolve().parent / f'predictions-{config.data.predict_split}.npz')
+            if self.predict_output.suffix != '.npz' or self.predict_output.exists():
+                raise ValueError('Choose a new .npz path for --prediction_output')
+            config.trainer.callbacks = []
+            config.trainer.enable_checkpointing = False
+            self.auto_configure_optimizers = False
+            return
+        if config.weights_path:
+            raise ValueError('--weights_path is only for predict')
         replay_config = copy.deepcopy(config)
         if config.trainer.max_epochs is None or config.trainer.max_epochs < 1:
             raise ValueError('trainer.max_epochs must be positive')
@@ -97,8 +132,36 @@ class TrafficCLI(LightningCLI):
                 callback.init_args.dirpath = str(self.output)
 
     def after_instantiate_classes(self):
-        self.model.optimizer_spec = self.config.fit.optimizer.as_dict()
-        self.model.scheduler_spec = self.config.fit.lr_scheduler.as_dict()
+        config = self.config[self.subcommand]
+        self.model.optimizer_spec = config.optimizer.as_dict()
+        self.model.scheduler_spec = config.lr_scheduler.as_dict()
+
+    def before_predict(self):
+        if self.config.predict.weights_path:
+            state = torch.load(self.config.predict.weights_path, map_location='cpu', weights_only=True)
+            self.model.model.load_state_dict(state, strict=True)
+
+    def predict(self, **kwargs):
+        kwargs['return_predictions'] = True
+        self.predictions = self.trainer.predict(**kwargs)
+
+    def after_predict(self):
+        if not self.predictions:
+            raise ValueError('The prediction split contains no windows')
+        result = {key: np.concatenate([batch[key].numpy() for batch in self.predictions])
+                  for key in ('origin', 'speed_mph', 'congestion_probability')}
+        origins = result['origin']
+        if np.any(np.diff(origins) <= 0):
+            raise ValueError('Prediction origins must be in chronological order')
+        prepared = self.datamodule.prepared
+        horizon = result['speed_mph'].shape[1]
+        self.predict_output.parent.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(self.predict_output, **result,
+            origin_timestamp=prepared['timestamps'][origins],
+            forecast_timestamp=prepared['timestamps'][origins[:, None] + np.arange(1, horizon + 1)],
+            sensor_ids=np.asarray(prepared['sensor_ids'], dtype=str),
+            split=np.asarray(self.datamodule.predict_split), ablation=np.asarray(self.model.ablation))
+        print(self.predict_output)
 
     def before_fit(self):
         self.output.mkdir(parents=True, exist_ok=True)
