@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "skills": {
+    "modal": {
+      "source": "K-Dense-AI/scientific-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/modal/SKILL.md",
+      "computedHash": "c35b342308cc78087909fd2cf70a1ccb959f19c17a53cc0bdbe18ea77123be95"
+    },
+    "pytorch-lightning": {
+      "source": "K-Dense-AI/scientific-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/pytorch-lightning/SKILL.md",
+      "computedHash": "c34df430e06a072ada5ab9db3a09e8fb6f1c630a2405b4f041405cc715f4733e"
+    },
+    "torch-geometric": {
+      "source": "K-Dense-AI/scientific-agent-skills",
+      "sourceType": "github",
+      "skillPath": "skills/torch-geometric/SKILL.md",
+      "computedHash": "e55dae95d0782437c26aa1e2f5b0db6aaee84a9c4af58aa801f9ed38bd4428d4"
+    }
+  }
+}
